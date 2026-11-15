@@ -1,8 +1,21 @@
 abstract final class AppInfo {
   static const name = '随行定位';
   static const projectName = name;
-  static const desktopVersion = '1.1.3（8）';
-  static const androidVersion = '1.2.7（14）';
+  static const desktopVersionName = String.fromEnvironment(
+    'APP_VERSION',
+    defaultValue: '1.1.4',
+  );
+  static const desktopBuild = int.fromEnvironment('APP_BUILD', defaultValue: 9);
+  static const androidVersionName = String.fromEnvironment(
+    'APP_VERSION',
+    defaultValue: '1.2.8',
+  );
+  static const androidBuild = int.fromEnvironment(
+    'APP_BUILD',
+    defaultValue: 15,
+  );
+  static const desktopVersion = '$desktopVersionName（$desktopBuild）';
+  static const androidVersion = '$androidVersionName（$androidBuild）';
   static const projectGithub = String.fromEnvironment(
     'PROJECT_GITHUB_URL',
     defaultValue: 'https://github.com/yfl520/sxloc',

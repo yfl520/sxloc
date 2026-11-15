@@ -4,8 +4,8 @@ param(
     [string]$AndroidSdk = 'D:\SuixingLocBuild\android-sdk',
     [string]$BuildRoot = 'D:\SuixingLocBuild',
     [string]$OutputRoot,
-    [string]$Version = '1.2.7',
-    [int]$BuildNumber = 14,
+    [string]$Version = '1.2.8',
+    [int]$BuildNumber = 15,
     [string]$ProjectGithubUrl = 'https://github.com/yfl520/sxloc'
 )
 $ErrorActionPreference = 'Stop'
@@ -14,6 +14,7 @@ if (-not $OutputRoot) { $OutputRoot = Join-Path (Split-Path $sourceRoot -Parent)
 $BuildRoot = [IO.Path]::GetFullPath($BuildRoot)
 if ($BuildRoot -match '[^\x00-\x7F]') { throw '安卓编译目录需为英文路径。' }
 if ($Version -notmatch '^\d+\.\d+\.\d+$') { throw '版本号格式无效。' }
+if ($BuildNumber -le 0) { throw '构建号必须为正整数。' }
 if ($ProjectGithubUrl -and $ProjectGithubUrl -notmatch '^https://github\.com/[^/?#@\s]+/[^/?#\s]+/?$') { throw '请填写完整的 GitHub 仓库 HTTPS 地址。' }
 foreach ($item in @($Flutter, (Join-Path $JavaHome 'bin\javac.exe'), (Join-Path $AndroidSdk 'platforms\android-36\android.jar'))) {
     if (-not (Test-Path -LiteralPath $item)) { throw "缺少构建依赖：$item" }
@@ -63,7 +64,7 @@ try {
         if ($LASTEXITCODE -ne 0) { throw '安卓地图坐标检查失败。' }
         & (Join-Path $flutterSdk 'bin\dart.bat') run tool/check_android_search.dart
         if ($LASTEXITCODE -ne 0) { throw '安卓搜索离线集成检查失败。' }
-        & $flutterCommand build apk --release --no-pub -t lib/main_android.dart --build-name=$Version --build-number=$BuildNumber --dart-define="PROJECT_GITHUB_URL=$ProjectGithubUrl" --target-platform android-arm,android-arm64,android-x64
+        & $flutterCommand build apk --release --no-pub -t lib/main_android.dart --build-name=$Version --build-number=$BuildNumber --dart-define="PROJECT_GITHUB_URL=$ProjectGithubUrl" --dart-define="APP_VERSION=$Version" --dart-define="APP_BUILD=$BuildNumber" --target-platform android-arm,android-arm64,android-x64
         if ($LASTEXITCODE -ne 0) { throw '安卓 APK 编译失败。' }
         Push-Location android
         try {
@@ -80,8 +81,11 @@ try {
     & $signer verify --verbose --print-certs $apk | Set-Content (Join-Path $destination 'APK签名校验.txt') -Encoding utf8
     if ($LASTEXITCODE -ne 0) { throw 'APK 签名校验失败。' }
     (Get-FileHash -LiteralPath $apk -Algorithm SHA256).Hash | Set-Content (Join-Path $destination 'SHA256.txt') -Encoding utf8
-    Copy-Item -LiteralPath (Join-Path $sourceRoot 'README-安卓蓝牙验证.md') -Destination (Join-Path $destination '使用说明.md')
+    $usage = [IO.File]::ReadAllText((Join-Path $sourceRoot 'README.md')).Replace('](BUILDING.md)', "]($ProjectGithubUrl/blob/main/BUILDING.md)").Replace('](FlutterApp/assets/service_agreement.md)', '](使用协议与免责声明.md)').Replace('](LICENSE)', '](LICENSE-GPL-3.0.txt)')
+    [IO.File]::WriteAllText((Join-Path $destination '使用说明.md'), $usage, [Text.UTF8Encoding]::new($false))
+    Copy-Item -LiteralPath (Join-Path $sourceRoot 'THIRD_PARTY_NOTICES.md') -Destination $destination
     Copy-Item -LiteralPath (Join-Path $sourceRoot 'LICENSE') -Destination (Join-Path $destination 'LICENSE-GPL-3.0.txt')
+    Copy-Item -LiteralPath (Join-Path $sourceRoot 'FlutterApp/assets/service_agreement.md') -Destination (Join-Path $destination '使用协议与免责声明.md')
     Write-Output "安卓测试 APK 已生成：$apk"
 } finally {
     $env:JAVA_HOME = $oldJava; $env:ANDROID_HOME = $oldAndroid; $env:ANDROID_SDK_ROOT = $oldSdkRoot

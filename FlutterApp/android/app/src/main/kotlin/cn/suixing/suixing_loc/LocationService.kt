@@ -45,6 +45,9 @@ class LocationService : Service() {
         return START_NOT_STICKY
     }
     private fun begin(remote: String, localText: String) {
+        check(getSharedPreferences("bluetooth_test", MODE_PRIVATE).getString("agreementVersion", null) == MainActivity.AGREEMENT_VERSION) {
+            "请先打开应用阅读并同意当前使用协议"
+        }
         val local = Wire.mac(localText)
         require(android.bluetooth.BluetoothAdapter.checkBluetoothAddress(remote)) { "iPhone 蓝牙地址格式错误" }
         val adapter = getSystemService(BluetoothManager::class.java).adapter ?: error("此设备没有可用蓝牙")

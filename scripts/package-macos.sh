@@ -53,7 +53,7 @@ dotnet publish Iap2Loc.csproj -c Release -r "$RID" \
 cp "$WORK/publish/iap2loc" "$APP/Contents/MacOS/iap2loc"
 cp "$WORK/libiap2macbt.dylib" "$APP/Contents/MacOS/libiap2macbt.dylib"
 cp LICENSE "$APP/Contents/Resources/LICENSE"
-cp README-macOS.md "$APP/Contents/Resources/README-macOS.md"
+cp README.md "$APP/Contents/Resources/README.md"
 chmod 755 "$APP/Contents/MacOS/iap2loc"
 
 cat > "$APP/Contents/Info.plist" <<EOF
@@ -82,7 +82,7 @@ codesign --force --sign - "$APP/Contents/MacOS/iap2loc"
 codesign --force --deep --sign - "$APP"
 codesign --verify --deep --strict --verbose=2 "$APP"
 
-cp README-macOS.md "$STAGE/README-macOS.md"
+cp README.md "$STAGE/README.md"
 cp LICENSE "$STAGE/LICENSE"
 ln -sf /Applications "$STAGE/Applications"
 printf 'upstream=%s\narchitecture=%s\n' "$(git rev-parse HEAD)" "$ARCH" > "$WORK/build-revision.txt"

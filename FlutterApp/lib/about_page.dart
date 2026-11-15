@@ -2,6 +2,9 @@ import 'package:cupertino_ui/cupertino_ui.dart';
 import 'package:flutter/services.dart';
 
 import 'app_info.dart';
+import 'service_agreement.dart';
+import 'app_updates.dart';
+import 'update_panel.dart';
 
 class AboutPage extends StatelessWidget {
   const AboutPage({
@@ -9,9 +12,11 @@ class AboutPage extends StatelessWidget {
     required this.version,
     required this.platform,
     required this.onOpenLink,
+    this.updates,
   });
   final String version, platform;
   final Future<void> Function(String) onOpenLink;
+  final AppUpdateController? updates;
 
   @override
   Widget build(BuildContext context) => CupertinoPageScaffold(
@@ -21,6 +26,7 @@ class AboutPage extends StatelessWidget {
         version: version,
         platform: platform,
         onOpenLink: onOpenLink,
+        updates: updates,
       ),
     ),
   );
@@ -32,9 +38,11 @@ class AboutContent extends StatefulWidget {
     required this.version,
     required this.platform,
     required this.onOpenLink,
+    this.updates,
   });
   final String version, platform;
   final Future<void> Function(String) onOpenLink;
+  final AppUpdateController? updates;
 
   @override
   State<AboutContent> createState() => _AboutContentState();
@@ -44,6 +52,20 @@ class _AboutContentState extends State<AboutContent> {
   String? _message;
   bool _opening = false;
   static const _secondary = Color(0xFF71717A);
+
+  @override
+  void didUpdateWidget(AboutContent oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!identical(oldWidget.updates, widget.updates)) {
+      oldWidget.updates?.dispose();
+    }
+  }
+
+  @override
+  void dispose() {
+    widget.updates?.dispose();
+    super.dispose();
+  }
 
   Future<void> _open(String url) async {
     if (_opening) return;
@@ -148,6 +170,13 @@ class _AboutContentState extends State<AboutContent> {
           style: TextStyle(fontSize: 13, color: _secondary, height: 1.5),
         ),
         const SizedBox(height: 26),
+        if (widget.updates != null) UpdatePanel(controller: widget.updates!),
+        CupertinoButton(
+          onPressed: () => Navigator.of(context).push<void>(
+            CupertinoPageRoute(builder: (_) => const AgreementPage()),
+          ),
+          child: const Text('查看使用协议与免责声明', style: TextStyle(fontSize: 14)),
+        ),
         _repository(
           '项目仓库 · ${AppInfo.projectName}',
           AppInfo.projectRepository == null

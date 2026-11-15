@@ -5,7 +5,8 @@ param(
     [string]$MsvcRedist,
     [string]$BuildRoot = "$env:SystemDrive\SuixingLocBuild",
     [string]$OutputRoot,
-    [string]$Version = '1.1.3',
+    [string]$Version = '1.1.4',
+    [int]$BuildNumber = 9,
     [string]$ProjectGithubUrl = 'https://github.com/yfl520/sxloc',
     [string]$Python = 'python',
     [switch]$TestBuild
@@ -17,6 +18,7 @@ $OutputRoot = [IO.Path]::GetFullPath($OutputRoot)
 $BuildRoot = [IO.Path]::GetFullPath($BuildRoot)
 if ($BuildRoot -match '[^\x00-\x7F]') { throw 'Flutter Windows 编译目录必须使用英文路径，请通过 -BuildRoot 指定。' }
 if ($Version -notmatch '^\d+\.\d+\.\d+$') { throw '版本号必须为 major.minor.patch 格式。' }
+if ($BuildNumber -le 0) { throw '构建号必须为正整数。' }
 if ($ProjectGithubUrl -and $ProjectGithubUrl -notmatch '^https://github\.com/[^/?#@\s]+/[^/?#\s]+/?$') { throw '请填写完整的 GitHub 仓库 HTTPS 地址。' }
 $flutterCommand = (Get-Command $Flutter -ErrorAction Stop).Source
 $dotnetCommand = (Get-Command $Dotnet -ErrorAction Stop).Source
@@ -45,7 +47,7 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Flutter 依赖还原失败。' }
     & $flutterCommand analyze --no-pub
     if ($LASTEXITCODE -ne 0) { throw 'Flutter 静态分析失败。' }
-    & $flutterCommand build windows --release --no-pub --dart-define="PROJECT_GITHUB_URL=$ProjectGithubUrl"
+    & $flutterCommand build windows --release --no-pub --build-name=$Version --build-number=$BuildNumber --dart-define="PROJECT_GITHUB_URL=$ProjectGithubUrl" --dart-define="APP_VERSION=$Version" --dart-define="APP_BUILD=$BuildNumber"
     if ($LASTEXITCODE -ne 0) { throw 'Flutter Windows 编译失败。' }
 } finally { Pop-Location }
 $coreOutput = Join-Path $BuildRoot "core-$buildId"
@@ -109,10 +111,11 @@ foreach ($package in $packageConfig.packages) {
 if ($InnoCompiler) {
     Copy-Item -LiteralPath (Join-Path (Split-Path $InnoCompiler -Parent) 'license.txt') -Destination (Join-Path $licenses 'Inno-Setup.txt')
 }
-foreach ($file in @('README-桌面版.md', '设计参考.md', '身份来源说明.md', '第三方组件说明.md')) {
+foreach ($file in @('THIRD_PARTY_NOTICES.md')) {
     Copy-Item -LiteralPath (Join-Path $sourceRoot $file) -Destination $bundle
 }
-Copy-Item -LiteralPath (Join-Path $sourceRoot 'README-桌面版.md') -Destination (Join-Path $OutputRoot '使用说明.md')
+$usage = [IO.File]::ReadAllText((Join-Path $sourceRoot 'README.md')).Replace('](BUILDING.md)', "]($ProjectGithubUrl/blob/main/BUILDING.md)").Replace('](FlutterApp/assets/service_agreement.md)', '](使用协议与免责声明.md)').Replace('](LICENSE)', '](licenses/iap2loc-GPL-3.0.txt)')
+[IO.File]::WriteAllText((Join-Path $bundle '使用说明.md'), $usage, [Text.UTF8Encoding]::new($false))
 
 function Assert-GuiExecutable([string]$File) {
     $stream = [IO.File]::OpenRead($File)
@@ -131,6 +134,10 @@ foreach ($required in @('data\app.so', 'data\icudtl.dat', 'data\flutter_assets\A
     if (-not (Test-Path -LiteralPath (Join-Path $bundle $required))) { throw "发布文件缺失：$required" }
 }
 
+$bundleInfo = @{ schemaVersion = 1; platform = 'windows-x64'; version = $Version; buildNumber = $BuildNumber } | ConvertTo-Json -Compress
+[IO.File]::WriteAllText((Join-Path $bundle 'app_info.json'), $bundleInfo, [Text.UTF8Encoding]::new($false))
+Copy-Item -LiteralPath (Join-Path $sourceRoot 'FlutterApp/assets/service_agreement.md') -Destination (Join-Path $bundle '使用协议与免责声明.md')
+
 if ($TestBuild) {
     Write-Output "测试构建完成：$bundle。未生成安装包或压缩包，未启动应用。"
     return
@@ -138,7 +145,13 @@ if ($TestBuild) {
 
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 $portableZip = Join-Path $OutputRoot '随行定位-便携版.zip'
-[IO.Compression.ZipFile]::CreateFromDirectory($bundle, $portableZip, [IO.Compression.CompressionLevel]::Optimal, $true)
+$updatePayload = Join-Path $OutputRoot 'sxloc-windows-x64.zip'
+[IO.Compression.ZipFile]::CreateFromDirectory($bundle, $updatePayload, [IO.Compression.CompressionLevel]::Optimal, $true)
+$updateHash = (Get-FileHash -LiteralPath $updatePayload -Algorithm SHA256).Hash.ToLowerInvariant()
+$updateSize = (Get-Item -LiteralPath $updatePayload).Length
+$updateInfo = @{ schemaVersion = 1; platform = 'windows-x64'; version = $Version; buildNumber = $BuildNumber; fileName = 'sxloc-windows-x64.zip'; size = $updateSize; sha256 = $updateHash } | ConvertTo-Json -Compress
+[IO.File]::WriteAllText((Join-Path $OutputRoot 'sxloc-update.json'), $updateInfo, [Text.UTF8Encoding]::new($false))
+[IO.File]::Copy($updatePayload, $portableZip, $true)
 $sourceZip = Join-Path $OutputRoot '随行定位-源码.zip'
 $archive = [IO.Compression.ZipFile]::Open($sourceZip, [IO.Compression.ZipArchiveMode]::Create)
 try {

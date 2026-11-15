@@ -4,6 +4,7 @@ import 'package:window_manager/window_manager.dart';
 
 import 'workspace.dart';
 import 'ui.dart';
+import 'service_agreement.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -56,7 +57,10 @@ class MainApp extends StatelessWidget {
           waitDuration: const Duration(milliseconds: 500),
         ),
       ),
-      home: const Workspace(),
+      home: AgreementGate(
+        onDecline: () => windowManager.destroy(),
+        builder: (_) => const Workspace(),
+      ),
     );
   }
 }

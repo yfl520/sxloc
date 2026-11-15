@@ -102,7 +102,11 @@ class CoreClient extends ChangeNotifier {
     if (!_closing) notifyListeners();
   }
 
-  Future<dynamic> call(String method, [JsonMap args = const {}]) async {
+  Future<dynamic> call(
+    String method, [
+    JsonMap args = const {},
+    Duration timeout = const Duration(seconds: 30),
+  ]) async {
     if (_process == null || (_closing && method != 'shutdown')) {
       throw const CoreError('定位组件尚未就绪');
     }
@@ -114,7 +118,7 @@ class CoreClient extends ChangeNotifier {
         jsonEncode({'id': id, 'method': method, 'args': args}),
       );
       await _process!.stdin.flush();
-      return await completer.future.timeout(const Duration(seconds: 30));
+      return await completer.future.timeout(timeout);
     } on TimeoutException {
       throw const CoreError('操作超时，请稍后重试。');
     } finally {

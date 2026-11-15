@@ -12,6 +12,7 @@ import 'coordinates.dart';
 import 'settings_sheet.dart';
 import 'ui.dart';
 import 'desktop_about.dart';
+import 'app_info.dart';
 
 class Workspace extends StatefulWidget {
   const Workspace({super.key});
@@ -1032,7 +1033,7 @@ class _WorkspaceState extends State<Workspace> with WindowListener {
                 () => showDesktopAbout(context, core),
               ),
               const Spacer(),
-              Text('1.1.3 · Flutter', style: textStyle(9, muted)),
+              Text('${AppInfo.desktopVersionName} · Flutter', style: textStyle(9, muted)),
             ],
           ),
         ),

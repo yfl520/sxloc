@@ -4,6 +4,14 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:suixing_loc/about_page.dart';
 import 'package:suixing_loc/app_info.dart';
 import 'package:suixing_loc/main_android.dart';
+import 'package:suixing_loc/service_agreement.dart';
+
+class AcceptedAgreementStore implements AgreementStore {
+  @override
+  Future<bool> isAccepted() async => true;
+  @override
+  Future<void> accept() async {}
+}
 
 void main() {
   final binding = TestWidgetsFlutterBinding.ensureInitialized();
@@ -46,7 +54,9 @@ void main() {
       binding.defaultBinaryMessenger.setMockMethodCallHandler(control, null);
       binding.defaultBinaryMessenger.setMockStreamHandler(events, null);
     });
-    await tester.pumpWidget(const BluetoothTestApp());
+    await tester.pumpWidget(
+      BluetoothTestApp(agreementStore: AcceptedAgreementStore()),
+    );
     await tester.pumpAndSettle();
   }
 
@@ -126,35 +136,35 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  testWidgets(
-    'shared about page attributes upstream without inventing own repository',
-    (tester) async {
-      final opened = <String>[];
-      await tester.binding.setSurfaceSize(const Size(420, 900));
-      addTearDown(() => tester.binding.setSurfaceSize(null));
-      await tester.pumpWidget(
-        CupertinoApp(
-          home: AboutPage(
-            version: AppInfo.androidVersion,
-            platform: 'Android 蓝牙版',
-            onOpenLink: (url) async {
-              opened.add(url);
-            },
-          ),
+  testWidgets('shared about page links project and attributes upstream', (
+    tester,
+  ) async {
+    final opened = <String>[];
+    await tester.binding.setSurfaceSize(const Size(420, 900));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(
+      CupertinoApp(
+        home: AboutPage(
+          version: AppInfo.androidVersion,
+          platform: 'Android 蓝牙版',
+          onOpenLink: (url) async {
+            opened.add(url);
+          },
         ),
-      );
-      await tester.pumpAndSettle();
-      expect(find.text('项目仓库 · ios定位'), findsOneWidget);
-      expect(find.textContaining('GitHub 仓库尚未发布'), findsOneWidget);
-      await tester.ensureVisible(find.text(AppInfo.upstreamGithub));
-      final button = find.text('打开 GitHub').first;
-      await tester.ensureVisible(button);
-      await tester.tap(button);
-      await tester.pumpAndSettle();
-      expect(opened, [AppInfo.upstreamGithub]);
-      expect(tester.takeException(), isNull);
-    },
-  );
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('项目仓库 · 随行定位'), findsOneWidget);
+    expect(find.text(AppInfo.projectGithub), findsOneWidget);
+    expect(find.textContaining('GitHub 仓库尚未发布'), findsNothing);
+    await tester.ensureVisible(find.text(AppInfo.projectGithub));
+    final button = find.text('打开 GitHub').first;
+    await tester.ensureVisible(button);
+    await tester.tap(button);
+    await tester.pumpAndSettle();
+    expect(opened, [AppInfo.projectGithub]);
+    expect(tester.takeException(), isNull);
+  });
 
   test('repository configuration accepts GitHub repository URLs only', () {
     expect(AppInfo.isGithubRepository(AppInfo.upstreamGithub), isTrue);

@@ -4,6 +4,7 @@ import 'about_page.dart';
 import 'app_info.dart';
 import 'core_client.dart';
 import 'ui.dart';
+import 'platform_updates.dart';
 
 Future<void> showDesktopAbout(BuildContext context, CoreClient core) =>
     showMacSheet<void>(
@@ -12,6 +13,7 @@ Future<void> showDesktopAbout(BuildContext context, CoreClient core) =>
       child: AboutContent(
         version: AppInfo.desktopVersion,
         platform: 'Windows 桌面版',
+        updates: desktopUpdates(core),
         onOpenLink: (url) async {
           await core.call('openGithub', {'url': url});
         },

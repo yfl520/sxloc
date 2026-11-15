@@ -28,8 +28,13 @@ internal static class Program
     private static TextWriter Output = null!;
     private static volatile bool ShuttingDown;
 
-    public static async Task Main()
+    public static async Task Main(string[] args)
     {
+        if (args is ["--apply-update", var plan])
+        {
+            await DesktopUpdater.RunHelper(plan);
+            return;
+        }
         // The Flutter host redirects these anonymous pipes. No HTTP listener or browser is used.
         Console.InputEncoding = new UTF8Encoding(false);
         Console.OutputEncoding = new UTF8Encoding(false);
@@ -110,6 +115,11 @@ internal static class Program
                 "identity.rotate" => Manager.RotateIdentity(null),
                 "openData" => Open(DesktopSettings.DataDirectory),
                 "openGithub" => OpenGithub(Text(args, "url")),
+                "update.directory" => DesktopUpdater.DownloadDirectory,
+                "update.install" => await DesktopUpdater.Prepare(
+                    Text(args, "path"), Text(args, "sha256"),
+                    Integer(args, "appPid", 0, 1, int.MaxValue),
+                    Text(args, "version"), Integer(args, "buildNumber", 0, 1, int.MaxValue)),
                 "openBluetooth" => Open("ms-settings:bluetooth"),
                 "shutdown" => await Shutdown(),
                 _ => throw new ArgumentException("不支持的操作"),
@@ -309,6 +319,7 @@ internal static class Program
             || uri.Query.Length > 0 || uri.Fragment.Length > 0) throw new ArgumentException("GitHub 地址无效");
         return Open(uri.AbsoluteUri);
     }
+
     private static void Send(object value) { lock (OutputGate) { Output.WriteLine(JsonSerializer.Serialize(value, Json)); Output.Flush(); } }
     private static string Text(JsonElement root, string name, string fallback = "") => root.ValueKind == JsonValueKind.Object && root.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() ?? fallback : fallback;
     private static double Number(JsonElement root, string name, double fallback = 0) => root.ValueKind == JsonValueKind.Object && root.TryGetProperty(name, out var value) ? value.GetDouble() : fallback;

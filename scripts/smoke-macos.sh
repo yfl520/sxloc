@@ -45,7 +45,7 @@ cleanup() {
 trap cleanup EXIT
 
 hdiutil attach -quiet -readonly -nobrowse -mountpoint "$MOUNT" "$DMG"
-for required in LICENSE README-macOS.md source.tar.gz; do
+for required in LICENSE README.md source.tar.gz; do
   test -f "$MOUNT/$required"
 done
 # The CI DMG ships both flavours, the release DMG ships one; verify every bundle present.

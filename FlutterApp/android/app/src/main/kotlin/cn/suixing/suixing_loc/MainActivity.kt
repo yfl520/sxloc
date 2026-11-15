@@ -16,6 +16,7 @@ import io.flutter.plugin.common.MethodChannel
 import java.util.Locale
 
 class MainActivity : FlutterActivity() {
+    companion object { const val AGREEMENT_VERSION = "2026-11-15.1" }
     private var service: LocationService? = null
     private var bound = false
     private var sink: EventChannel.EventSink? = null
@@ -23,6 +24,7 @@ class MainActivity : FlutterActivity() {
     private val prefs by lazy { getSharedPreferences("bluetooth_test", MODE_PRIVATE) }
     private val mapSearchSettings by lazy { MapSearchSettings(this) }
     private var searchInputDialog: SearchInputDialog? = null
+    private val updates by lazy { AndroidUpdates(this) }
     private val connection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName?, binder: IBinder?) {
             service = (binder as LocationService.LocalBinder).service()
@@ -33,14 +35,28 @@ class MainActivity : FlutterActivity() {
     }
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
-        bound = bindService(Intent(this, LocationService::class.java), connection, BIND_AUTO_CREATE)
+        if (prefs.getString("agreementVersion", null) == AGREEMENT_VERSION) bindLocationService()
         EventChannel(flutterEngine.dartExecutor.binaryMessenger, "suixing/android/events").setStreamHandler(object : EventChannel.StreamHandler {
             override fun onListen(arguments: Any?, events: EventChannel.EventSink) { sink = events; service?.snapshot?.let { events.success(it) } }
             override fun onCancel(arguments: Any?) { sink = null }
         })
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "suixing/android/control").setMethodCallHandler { call, result ->
             try {
+                if (call.method != "agreement.read" && call.method != "agreement.accept") {
+                    check(prefs.getString("agreementVersion", null) == AGREEMENT_VERSION) { "请先阅读并同意使用协议" }
+                }
                 when (call.method) {
+                    "update.directory" -> result.success(updates.directory())
+                    "update.install" -> updates.install(call, result)
+                    "agreement.read" -> result.success(prefs.getString("agreementVersion", null))
+                    "agreement.accept" -> {
+                        val version = call.argument<String>("version") ?: ""
+                        require(version == AGREEMENT_VERSION) { "协议版本无效，请重新安装应用" }
+                        check(prefs.edit().putString("agreementVersion", version)
+                            .putLong("agreementAcceptedAt", System.currentTimeMillis()).commit()) { "同意记录保存失败" }
+                        bindLocationService()
+                        result.success(null)
+                    }
                     "mapSearch.edit" -> {
                         val editor = searchInputDialog ?: SearchInputDialog(this).also { searchInputDialog = it }
                         editor.edit(call.argument<String>("field"), call.argument<String>("value") ?: "", result)
@@ -111,6 +127,9 @@ class MainActivity : FlutterActivity() {
         }
     }
     private fun hasPermission() = Build.VERSION.SDK_INT < 31 || checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED
+    private fun bindLocationService() {
+        if (!bound) bound = bindService(Intent(this, LocationService::class.java), connection, BIND_AUTO_CREATE)
+    }
     private fun checkPermissions() { check(hasPermission()) { "请先刷新设备，并授权附近设备权限" } }
     private fun requestDevices(result: MethodChannel.Result) {
         if (!hasPermission()) {
@@ -138,6 +157,7 @@ class MainActivity : FlutterActivity() {
     }
     override fun onDestroy() {
         searchInputDialog?.close(); searchInputDialog = null
+        updates.close()
         permissionResult?.error("CANCELLED", "界面已关闭，请重新操作", null); permissionResult = null
         service?.listener = null
         if (bound) unbindService(connection)

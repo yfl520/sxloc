@@ -9,6 +9,8 @@ import 'android_map_picker.dart';
 import 'android_search_settings.dart';
 import 'about_page.dart';
 import 'app_info.dart';
+import 'service_agreement.dart';
+import 'platform_updates.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -16,21 +18,22 @@ void main() {
 }
 
 class BluetoothTestApp extends StatelessWidget {
-  const BluetoothTestApp({super.key});
+  const BluetoothTestApp({super.key, this.agreementStore});
+  final AgreementStore? agreementStore;
 
   @override
-  Widget build(BuildContext context) => const CupertinoApp(
+  Widget build(BuildContext context) => CupertinoApp(
     debugShowCheckedModeBanner: false,
     title: '随行定位',
-    locale: Locale('zh', 'CN'),
-    supportedLocales: [Locale('zh', 'CN')],
-    localizationsDelegates: [
+    locale: const Locale('zh', 'CN'),
+    supportedLocales: const [Locale('zh', 'CN')],
+    localizationsDelegates: const [
       ...GlobalCupertinoLocalizations.delegates,
       // Required by the SDK input fields used in the Android settings page.
       // ignore: deprecated_member_use
       sdk.GlobalCupertinoLocalizations.delegate,
     ],
-    theme: CupertinoThemeData(
+    theme: const CupertinoThemeData(
       brightness: Brightness.light,
       primaryColor: Color(0xFF007AFF),
       scaffoldBackgroundColor: Color(0xFFF2F3F7),
@@ -43,7 +46,11 @@ class BluetoothTestApp extends StatelessWidget {
         ),
       ),
     ),
-    home: BluetoothTestPage(),
+    home: AgreementGate(
+      store: agreementStore,
+      onDecline: () => SystemNavigator.pop(),
+      builder: (_) => const BluetoothTestPage(),
+    ),
   );
 }
 
@@ -268,12 +275,14 @@ class _BluetoothTestPageState extends State<BluetoothTestPage>
 
   void _about() {
     FocusManager.instance.primaryFocus?.unfocus();
+    final updates = androidUpdates();
     unawaited(
       Navigator.of(context).push<void>(
         CupertinoPageRoute(
           builder: (_) => AboutPage(
             version: AppInfo.androidVersion,
             platform: 'Android 蓝牙版',
+            updates: updates,
             onOpenLink: (url) =>
                 _control.invokeMethod<void>('openGithub', {'url': url}),
           ),
