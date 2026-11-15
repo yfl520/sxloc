@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>iap2loc</AssemblyName>
+    <RootNamespace>Iap2Loc</RootNamespace>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+    <DefaultItemExcludes>$(DefaultItemExcludes);Desktop/**;Tests/**;Bridge/**;FlutterApp/**</DefaultItemExcludes>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="Web/index.html" />
+    <InternalsVisibleTo Include="Iap2Loc.Desktop" />
+    <InternalsVisibleTo Include="Iap2Loc.Tests" />
+    <InternalsVisibleTo Include="SuixingLoc.Core" />
+  </ItemGroup>
+
+</Project>

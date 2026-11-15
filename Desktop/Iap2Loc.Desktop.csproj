@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>Iap2Loc.Desktop</AssemblyName>
+    <RootNamespace>Iap2Loc.Desktop</RootNamespace>
+    <ApplicationIcon>Assets/app.ico</ApplicationIcon>
+    <Product>随行定位</Product>
+    <Description>中文 iAP2 桌面定位工具</Description>
+    <Version>1.0.0</Version>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Iap2Loc.csproj" />
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4314.35" />
+    <InternalsVisibleTo Include="Iap2Loc.Tests" />
+    <EmbeddedResource Include="Assets/map.html;Assets/leaflet.js;Assets/leaflet.css" />
+    <EmbeddedResource Include="Private/identity.pk8;Private/certificate.p7b" Condition="Exists('Private/identity.pk8') and Exists('Private/certificate.p7b')" />
+  </ItemGroup>
+</Project>

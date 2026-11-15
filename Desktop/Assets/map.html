@@ -1,0 +1,47 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<style>/*LEAFLET_CSS*/</style>
+<style>
+html,body,#map{height:100%;width:100%;margin:0;font-family:'Microsoft YaHei UI',sans-serif;background:#e8ede8}
+.leaflet-container{background:#e8ede8}.leaflet-control-zoom{border:1px solid #d8e1da!important;border-radius:9px!important;overflow:hidden;box-shadow:0 3px 15px #203a3212!important}
+.leaflet-control-attribution{font-size:10px;background:#ffffffdf!important}.leaflet-control-attribution a{color:#477267}
+.pin{width:22px;height:22px;border:4px solid white;border-radius:50% 50% 50% 0;background:#157560;transform:rotate(-45deg);box-shadow:0 4px 14px #15392f55}
+.pin:after{content:'';position:absolute;width:6px;height:6px;left:8px;top:8px;border-radius:50%;background:#c4e8d2}
+.badge{position:absolute;z-index:800;left:18px;bottom:28px;padding:10px 15px;border:1px solid #d8e1da;border-radius:9px;background:#fffffff2;color:#37574b;font-size:12px;box-shadow:0 3px 15px #203a3212;pointer-events:none}
+#notice{display:none;position:absolute;z-index:801;top:15px;left:50%;transform:translateX(-50%);padding:10px 16px;background:#fff5df;color:#875c18;border-radius:8px;max-width:80%;font-size:12px}
+</style></head><body><div id="map"></div><div id="notice"></div><div class="badge" id="badge">点击地图选择位置 · 选好后点击“应用定位”</div>
+<script>/*LEAFLET_JS*/</script><script>
+'use strict';
+const PI=Math.PI,AXIS=6378245,EE=.00669342162296594323;
+function wgs2gcj(lat,lon){
+ if(!(lon>73.66&&lon<135.05&&lat>3.86&&lat<53.55))return[lat,lon];
+ let x=lon-105,y=lat-35;
+ let a=-100+2*x+3*y+.2*y*y+.1*x*y+.2*Math.sqrt(Math.abs(x));
+ a+=(20*Math.sin(6*x*PI)+20*Math.sin(2*x*PI))*2/3;
+ a+=(20*Math.sin(y*PI)+40*Math.sin(y/3*PI))*2/3;
+ a+=(160*Math.sin(y/12*PI)+320*Math.sin(y*PI/30))*2/3;
+ let b=300+x+2*y+.1*x*x+.1*x*y+.1*Math.sqrt(Math.abs(x));
+ b+=(20*Math.sin(6*x*PI)+20*Math.sin(2*x*PI))*2/3;
+ b+=(20*Math.sin(x*PI)+40*Math.sin(x/3*PI))*2/3;
+ b+=(150*Math.sin(x/12*PI)+300*Math.sin(x/30*PI))*2/3;
+ const rad=lat/180*PI,magic=1-EE*Math.sin(rad)**2,sq=Math.sqrt(magic);
+ return[lat+a*180/(AXIS*(1-EE)/(magic*sq)*PI),lon+b*180/(AXIS/sq*Math.cos(rad)*PI)];
+}
+function gcj2wgs(lat,lon){let a=lat,b=lon;for(let i=0;i<8;i++){let[g,h]=wgs2gcj(a,b);a+=lat-g;b+=lon-h}return[a,b]}
+let datum='gcj',wgs=[31.2304,121.4737],hasApplied=false,applied=wgs;
+const map=L.map('map',{zoomControl:false}).setView(wgs2gcj(...wgs),13);
+L.control.zoom({position:'bottomright',zoomInTitle:'放大',zoomOutTitle:'缩小'}).addTo(map);
+const osm=L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© OpenStreetMap 贡献者'});
+const amap=L.tileLayer('https://webrd0{s}.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=8&x={x}&y={y}&z={z}',{subdomains:'1234',maxZoom:18,attribution:'© 高德地图'});
+amap.addTo(map);
+const icon=L.divIcon({className:'',html:'<div class="pin"></div>',iconSize:[30,30],iconAnchor:[15,30]});
+const marker=L.marker(wgs2gcj(...wgs),{icon,draggable:true,title:'拖动选择位置'}).addTo(map);
+const appliedDot=L.circleMarker(wgs2gcj(...wgs),{radius:7,color:'#ffffff',weight:3,fillColor:'#17765f',fillOpacity:.7});
+function display(p){return datum==='gcj'?wgs2gcj(...p):p}
+function picked(lat,lon){wgs=datum==='gcj'?gcj2wgs(lat,lon):[lat,lon];marker.setLatLng(display(wgs));window.chrome.webview.postMessage({type:'pick',latitude:wgs[0],longitude:wgs[1]})}
+map.on('click',e=>picked(e.latlng.lat,e.latlng.lng));marker.on('dragend',()=>{let p=marker.getLatLng();picked(p.lat,p.lng)});
+window.setPosition=function(lat,lon,pan){wgs=[lat,lon];const p=display(wgs);marker.setLatLng(p);if(pan)map.setView(p,Math.max(map.getZoom(),15));document.getElementById('badge').textContent='待应用 · '+lat.toFixed(6)+', '+lon.toFixed(6)};
+window.setApplied=function(lat,lon){applied=[lat,lon];hasApplied=true;appliedDot.setLatLng(display(applied)).addTo(map);document.getElementById('badge').textContent='已应用 · '+lat.toFixed(6)+', '+lon.toFixed(6)};
+window.setDatum=function(value){datum=value;map.removeLayer(osm);map.removeLayer(amap);(datum==='gcj'?amap:osm).addTo(map);marker.setLatLng(display(wgs));if(hasApplied)appliedDot.setLatLng(display(applied));map.setView(display(wgs),Math.min(map.getZoom(),18))};
+let errors=0;for(const layer of[osm,amap]){layer.on('tileerror',()=>{if(++errors>=6){const n=document.getElementById('notice');n.textContent='地图暂时无法加载，请检查网络或切换底图；仍可搜索、输入坐标。';n.style.display='block'}});layer.on('tileload',()=>{errors=0;document.getElementById('notice').style.display='none'})}
+window.chrome.webview.postMessage({type:'ready'});
+</script></body></html>

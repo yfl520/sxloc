@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>SuixingLoc.Core</AssemblyName>
+    <RootNamespace>SuixingLoc.Core</RootNamespace>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Iap2Loc.csproj" />
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="10.0.0" />
+    <Compile Include="../Desktop/DesktopSettings.cs;../Desktop/DesktopIdentityProvider.cs;../Desktop/ChineseText.cs;../Desktop/PlaceSearchService.cs;../Desktop/CoordinateConverter.cs" Link="Shared/%(Filename)%(Extension)" />
+    <EmbeddedResource Include="../Desktop/Private/identity.pk8" LogicalName="Iap2Loc.Desktop.Private.identity.pk8" Condition="Exists('../Desktop/Private/identity.pk8')" />
+    <EmbeddedResource Include="../Desktop/Private/certificate.p7b" LogicalName="Iap2Loc.Desktop.Private.certificate.p7b" Condition="Exists('../Desktop/Private/certificate.p7b')" />
+  </ItemGroup>
+</Project>

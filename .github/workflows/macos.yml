@@ -1,0 +1,161 @@
+name: Legacy iap2loc macOS CLI (manual)
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: '已存在的 tag，仅用于重跑发布'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: iap2loc-macos-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DOTNET_NOLOGO: 'true'
+  DOTNET_CLI_TELEMETRY_OPTOUT: 'true'
+  DOTNET_SKIP_FIRST_TIME_EXPERIENCE: 'true'
+
+jobs:
+  build:
+    name: Build ${{ matrix.suffix }} DMG
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: arm64
+            suffix: arm64
+            runner: macos-15
+            machine: arm64
+          - arch: x64
+            suffix: x64
+            runner: macos-15-intel
+            machine: x86_64
+    steps:
+      - name: Checkout full source history
+        uses: actions/checkout@v4
+        with:
+          # On a release event this is the release tag; a manual re-run must build the same tag
+          # instead of whatever branch was selected in the UI.
+          ref: ${{ github.event.release.tag_name || inputs.tag || github.ref }}
+          fetch-depth: 0
+
+      - name: Verify the checkout matches the release tag
+        if: github.event_name == 'release' || github.event_name == 'workflow_dispatch'
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name || inputs.tag }}
+        run: |
+          set -euo pipefail
+          actual="$(git describe --tags --exact-match)"
+          if [ "$actual" != "$RELEASE_TAG" ]; then
+            echo "checked out $actual but expected $RELEASE_TAG" >&2
+            exit 1
+          fi
+
+      - name: Install .NET 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Validate build host
+        shell: bash
+        run: |
+          set -euo pipefail
+          uname -m
+          test "$(uname -m)" = "${{ matrix.machine }}"
+          xcrun --find clang
+          dotnet --info
+
+      - name: Compile
+        run: dotnet build Iap2Loc.csproj --configuration Release --nologo
+
+      - name: Package DMG
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash scripts/package-macos.sh "${{ matrix.arch }}" "dist/iap2loc-macos-${{ matrix.suffix }}.dmg"
+          ls -lh dist
+
+      - name: Smoke-test the packaged DMG
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash scripts/smoke-macos.sh "dist/iap2loc-macos-${{ matrix.suffix }}.dmg" "${{ matrix.arch }}"
+
+      - name: Upload the DMG
+        uses: actions/upload-artifact@v4
+        with:
+          name: iap2loc-macos-${{ matrix.suffix }}
+          path: |
+            dist/iap2loc-macos-${{ matrix.suffix }}.dmg
+            dist/SHA256SUMS
+          if-no-files-found: error
+          retention-days: 30
+          compression-level: 0
+
+  publish:
+    name: Attach both DMGs to the release
+    needs: build
+    # Branch pushes and pull requests build the DMGs but must not touch a release.
+    if: github.event_name == 'release' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Download the arm64 DMG
+        uses: actions/download-artifact@v4
+        with:
+          name: iap2loc-macos-arm64
+          path: package/arm64
+
+      - name: Download the x64 DMG
+        uses: actions/download-artifact@v4
+        with:
+          name: iap2loc-macos-x64
+          path: package/x64
+
+      - name: Attach assets to the release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.event.release.tag_name || inputs.tag }}
+        run: |
+          set -euo pipefail
+          if [ -z "${RELEASE_TAG:-}" ]; then
+            echo "RELEASE_TAG is empty; this job only runs for release or workflow_dispatch" >&2
+            exit 1
+          fi
+
+          cd package
+
+          test -f arm64/iap2loc-macos-arm64.dmg
+          test -f x64/iap2loc-macos-x64.dmg
+          test -f arm64/SHA256SUMS
+          test -f x64/SHA256SUMS
+
+          # Distinct asset name: the Windows workflow publishes its own checksum file.
+          cat arm64/SHA256SUMS x64/SHA256SUMS > iap2loc-macos.sha256
+          cat iap2loc-macos.sha256
+
+          if ! gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "release $RELEASE_TAG not found; publish the release first" >&2
+            exit 1
+          fi
+
+          gh release upload "$RELEASE_TAG" \
+            arm64/iap2loc-macos-arm64.dmg \
+            x64/iap2loc-macos-x64.dmg \
+            iap2loc-macos.sha256 \
+            --repo "$GITHUB_REPOSITORY" \
+            --clobber
+
+          gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json assets \
+            --jq '.assets[].name'
