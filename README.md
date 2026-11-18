@@ -10,7 +10,7 @@
 
 | 平台 | 当前测试版 | 下载 |
 | --- | --- | --- |
-| Windows x64 | 1.1.10（15） | [安装版 / 完整便携 ZIP](https://github.com/yfl520/sxloc/releases/tag/windows-v1.1.10%2B15) |
+| Windows x64 | 1.1.10（15） | [完整便携 ZIP](https://github.com/yfl520/sxloc/releases/tag/windows-v1.1.10%2B15) |
 | Android 8 及以上 | 1.2.8（15） | [APK](https://github.com/yfl520/sxloc/releases/tag/android-v1.2.8%2B15) |
 
 首次打开需主动同意[使用协议与免责声明](FlutterApp/assets/service_agreement.md)，协议更新后重新确认；关于页可再次查看。
