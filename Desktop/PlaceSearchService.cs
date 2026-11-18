@@ -38,7 +38,12 @@ internal sealed class PlaceSearchService : IDisposable
 
     public PlaceSearchService(HttpMessageHandler? handler = null, TimeSpan? requestInterval = null, TimeSpan? requestTimeout = null)
     {
-        _http = handler is null ? new HttpClient() : new HttpClient(handler);
+        // Built-in search services bypass stale local proxies. Custom service
+        // endpoints retain their existing proxy configuration.
+        _http = new HttpClient(handler ?? new HttpClientHandler
+        {
+            Proxy = new PlaceSearchProxy(HttpClient.DefaultProxy),
+        });
         _http.Timeout = Timeout.InfiniteTimeSpan;
         _http.MaxResponseContentBufferSize = 2 * 1024 * 1024;
         _http.DefaultRequestHeaders.UserAgent.ParseAdd("SuixingLoc/1.1 (Windows desktop; place search)");
@@ -354,4 +359,15 @@ internal sealed class PlaceSearchService : IDisposable
         });
     }
     public void Dispose() => _http.Dispose();
+}
+
+internal sealed class PlaceSearchProxy(IWebProxy fallback) : IWebProxy
+{
+    private static bool Direct(Uri destination) => destination.Scheme == Uri.UriSchemeHttps
+        && (destination.IdnHost.Equals("restapi.amap.com", StringComparison.OrdinalIgnoreCase)
+            || destination.IdnHost.Equals("photon.komoot.io", StringComparison.OrdinalIgnoreCase));
+
+    public Uri? GetProxy(Uri destination) => Direct(destination) ? destination : fallback.GetProxy(destination);
+    public bool IsBypassed(Uri destination) => Direct(destination) || fallback.IsBypassed(destination);
+    public ICredentials? Credentials { get => fallback.Credentials; set => fallback.Credentials = value; }
 }

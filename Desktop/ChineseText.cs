@@ -8,6 +8,7 @@ internal static class ChineseText
 {
     public static string Error(Exception exception)
     {
+        if (exception is Iap2Loc.Engine.ConfigurationSaveException) return exception.Message;
         var ex = exception.GetBaseException();
         return ex switch
         {

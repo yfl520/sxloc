@@ -27,6 +27,7 @@ internal static class Program
     private static long SearchId, LatestSearchId;
     private static TextWriter Output = null!;
     private static volatile bool ShuttingDown;
+    private static string? StartupWarning;
 
     public static async Task Main(string[] args)
     {
@@ -50,6 +51,7 @@ internal static class Program
             IdentitySource.Provider = Identity;
             Identity.Prime();
             var config = AppConfig.Load(Path.Combine(DesktopSettings.DataDirectory, "iap2loc.json"));
+            StartupWarning = string.Join(" ", new[] { Settings.LoadWarning, config.LoadWarning }.Where(s => s is not null));
             config.PrepareForRun(null);
             Manager = new SessionManager(Settings.Latitude, Settings.Longitude, config);
             Manager.ApplyTarget(Settings.ToTargetUpdate(), Settings.Rate);
@@ -137,6 +139,8 @@ internal static class Program
             return new
             {
                 target = Manager.Target.Snapshot(), rate = Settings.Rate,
+                startupWarning = StartupWarning,
+                applyBlockedReason = ApplyBlockedReason(),
                 settings = new { Settings.SearchProvider, Settings.SearchCity, Settings.PhotonEndpoint,
                     hasAmapKey = Settings.AmapKey.Length > 0, Settings.Datum, Settings.SearchHistory },
                 identity = new { Identity.Name, Identity.Detail, valid = Identity.Warning is null,
@@ -203,10 +207,9 @@ internal static class Program
                 {
                     lock (SettingsGate)
                     {
-                        Settings.SearchHistory.RemoveAll(item => item == query);
-                        Settings.SearchHistory.Insert(0, query);
-                        Settings.SearchHistory = Settings.SearchHistory.Take(15).ToList();
-                        Settings.Save();
+                        if (!Settings.RememberSearch(query))
+                            results = results with { Notice = string.Join(" ", new[] { results.Notice,
+                                "已找到搜索结果，但搜索历史未能保存，请检查磁盘空间和目录权限。" }.Where(s => s is not null)) };
                     }
                 }
             }
@@ -236,11 +239,22 @@ internal static class Program
         return true;
     }
 
+    private static string? ApplyBlockedReason()
+    {
+        var usb = Usb.Snapshot();
+        var phase = usb.TryGetProperty("phase", out var value) ? value.GetString() : null;
+        var usbFailed = usb.TryGetProperty("error", out var error) && error.ValueKind != JsonValueKind.Null;
+        return ApplyAvailability.BlockedReason(Manager.Sessions.Select(s =>
+            new PhoneConnection(s.Running, s.Starting, s.Identified, s.Authenticated, s.Error is not null)), phase, usbFailed);
+    }
+
     private static async Task<object> Apply(JsonElement args)
     {
         TargetState target;
         lock (SettingsGate)
         {
+            // Recheck in the core so stale UI state cannot apply while disconnected.
+            if (ApplyBlockedReason() is { } reason) throw new InvalidOperationException(reason);
             var old = Manager.Target.Snapshot();
             var update = new TargetUpdate
             {
@@ -253,15 +267,19 @@ internal static class Program
                 AccuracyMin = Range(args, "accuracyMin", old.AccuracyMin, .1, 100000), AccuracyMax = Range(args, "accuracyMax", old.AccuracyMax, .1, 100000),
             };
             var rate = Integer(args, "rate", Settings.Rate, 10, 60000);
+            // Validate the whole update before saving or touching the live Bluetooth target.
+            var validated = new LocationTarget(update.Latitude!.Value, update.Longitude!.Value);
+            validated.Apply(update);
+            var next = Settings.Copy();
+            next.Latitude = update.Latitude.Value; next.Longitude = update.Longitude.Value;
+            next.Altitude = update.Altitude!.Value; next.Accuracy = update.Accuracy!.Value;
+            next.Speed = update.Speed!.Value; next.Bearing = update.Bearing!.Value;
+            next.Quality = update.Quality!.Value; next.Satellites = update.Satellites!.Value; next.Rate = rate;
+            next.JitterPosition = update.JitterPosition!.Value; next.JitterAccuracy = update.JitterAccuracy!.Value;
+            next.JitterMeters = update.JitterMeters!.Value; next.AccuracyMin = update.AccuracyMin!.Value; next.AccuracyMax = update.AccuracyMax!.Value;
+            Settings.Commit(next);
             Manager.ApplyTarget(update, rate);
             target = Manager.Target.Snapshot();
-            Settings.Latitude = target.Latitude; Settings.Longitude = target.Longitude;
-            Settings.Altitude = target.Altitude ?? 10; Settings.Accuracy = target.Accuracy ?? 5;
-            Settings.Speed = target.Speed ?? 0; Settings.Bearing = target.Bearing ?? 0;
-            Settings.Quality = target.Quality; Settings.Satellites = target.Satellites; Settings.Rate = rate;
-            Settings.JitterPosition = target.JitterPosition; Settings.JitterAccuracy = target.JitterAccuracy;
-            Settings.JitterMeters = target.JitterMeters; Settings.AccuracyMin = target.AccuracyMin; Settings.AccuracyMax = target.AccuracyMax;
-            Settings.Save();
         }
         await Usb.UpdateTarget(target);
         return target;
@@ -298,10 +316,11 @@ internal static class Program
                 throw new ArgumentException("开放地图服务地址必须是 HTTPS，或本机 HTTP 地址");
             var datum = Text(args, "datum", Settings.Datum);
             if (datum is not ("gcj" or "wgs")) throw new ArgumentException("地图类型无效");
-            Settings.SearchProvider = provider; Settings.SearchCity = Text(args, "searchCity", Settings.SearchCity).Trim();
-            Settings.PhotonEndpoint = endpoint; Settings.Datum = datum;
-            if (clear) Settings.AmapKey = ""; else if (key.Length > 0) Settings.AmapKey = key;
-            Settings.Save();
+            var next = Settings.Copy();
+            next.SearchProvider = provider; next.SearchCity = Text(args, "searchCity", Settings.SearchCity).Trim();
+            next.PhotonEndpoint = endpoint; next.Datum = datum;
+            if (clear) next.AmapKey = ""; else if (key.Length > 0) next.AmapKey = key;
+            Settings.Commit(next);
             return true;
         }
     }

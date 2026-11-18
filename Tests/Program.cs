@@ -35,6 +35,8 @@ internal static class Program
             await Test("iAP2 握手、识别、认证门控及定位订阅", ProtocolRoundtrip);
             await Test("连接失败与状态读取、停止的并发退出", () => ConcurrentStop(output));
             await Test("桌面配置保存、恢复及搜索 Key 加密", SettingsRoundtrip);
+            await Test("收藏和设置写入故障、损坏恢复及字段容错", PersistenceRegression.Run);
+            await Test("应用定位的 iPhone 连接与认证门控", ApplyAvailabilityRegression);
             File.WriteAllText(Path.Combine(output, "test-results.json"), JsonSerializer.Serialize(new { passed = _passed, results = Results }, new JsonSerializerOptions { WriteIndented = true }));
             Console.WriteLine($"PASS: {_passed} 项测试全部通过"); return 0;
         }
@@ -50,6 +52,27 @@ internal static class Program
     {
         await test().WaitAsync(TimeSpan.FromSeconds(20));
         ++_passed; Results.Add(name); Console.WriteLine("PASS: " + name);
+    }
+
+    private static Task ApplyAvailabilityRegression()
+    {
+        for (var mask = 0; mask < 32; mask++)
+        {
+            var state = new SuixingLoc.Core.PhoneConnection((mask & 1) != 0, (mask & 2) != 0,
+                (mask & 4) != 0, (mask & 8) != 0, (mask & 16) != 0);
+            var allowed = state.Running && !state.Starting && state.Identified && state.Authenticated && !state.Failed;
+            Assert((SuixingLoc.Core.ApplyAvailability.BlockedReason([state], "idle", false) is null) == allowed,
+                "蓝牙连接/认证/失败组合判断错误：" + mask);
+        }
+        foreach (var phase in new[] { "idle", "connecting", "simulating", "stopping", "error" })
+        foreach (var failed in new[] { false, true })
+            Assert((SuixingLoc.Core.ApplyAvailability.BlockedReason([], phase, failed) is null) == (phase == "simulating" && !failed),
+                "USB 连接阶段判断错误");
+        Assert(SuixingLoc.Core.ApplyAvailability.BlockedReason([], "idle", false) == SuixingLoc.Core.ApplyAvailability.NotConnected,
+            "未连接缺少提示");
+        Assert(SuixingLoc.Core.ApplyAvailability.BlockedReason([new(true, false, true, true, false), new(false, false, false, false, true)], "idle", false) is null,
+            "失败的其他会话阻止了已连接 iPhone 应用");
+        return Task.CompletedTask;
     }
     private static void Assert(bool condition, string message) { if (!condition) throw new Exception(message); }
     private static void Throws(Action action, string message) { try { action(); } catch { return; } throw new Exception(message); }
@@ -90,6 +113,25 @@ internal static class Program
         Assert(target.Snapshot().Latitude == 31, "失败更新改变了目标");
         target.Apply(new TargetUpdate { JitterPosition = true, JitterMeters = 10 });
         Assert(target.Next() == target.Next(), "随机位置没有保持稳定");
+        foreach (var point in new[] { (90d,180d), (-90d,-180d), (89.9999,179.9999), (-89.9999,-179.9999), (0d,180d), (0d,0d), (31.23,121.47) })
+        {
+            var edge = new LocationTarget(point.Item1, point.Item2);
+            for (var i = 0; i < 100; i++)
+            {
+                var radius = 9999 + i / 100d;
+                edge.Apply(new TargetUpdate { JitterPosition = true, JitterMeters = radius });
+                var fix = edge.Next();
+                Assert(double.IsFinite(fix.Latitude) && Math.Abs(fix.Latitude) <= 90
+                    && double.IsFinite(fix.Longitude) && Math.Abs(fix.Longitude) <= 180, "边界偏移坐标越界");
+                var lat1 = point.Item1 * Math.PI / 180; var lat2 = fix.Latitude * Math.PI / 180;
+                var deltaLon = (fix.Longitude - point.Item2) * Math.PI / 180;
+                var haversine = Math.Pow(Math.Sin((lat2-lat1)/2),2) + Math.Cos(lat1)*Math.Cos(lat2)*Math.Pow(Math.Sin(deltaLon/2),2);
+                var distance = 2 * 6_371_008.8 * Math.Asin(Math.Sqrt(Math.Clamp(haversine,0,1)));
+                Assert(distance <= radius + .001, "偏移超出指定半径");
+                Assert(edge.Next() == fix, "边界位置重复读取发生抖动");
+                _ = Nmea.Encode(fix.Latitude, fix.Longitude, 10, null, 0, 5, 1, 8, DateTime.UtcNow);
+            }
+        }
         return Task.CompletedTask;
     }
 

@@ -5,8 +5,8 @@ param(
     [string]$MsvcRedist,
     [string]$BuildRoot = "$env:SystemDrive\SuixingLocBuild",
     [string]$OutputRoot,
-    [string]$Version = '1.1.4',
-    [int]$BuildNumber = 9,
+    [string]$Version = '1.1.10',
+    [int]$BuildNumber = 15,
     [string]$ProjectGithubUrl = 'https://github.com/yfl520/sxloc',
     [string]$Python = 'python',
     [switch]$TestBuild
@@ -153,16 +153,10 @@ $updateInfo = @{ schemaVersion = 1; platform = 'windows-x64'; version = $Version
 [IO.File]::WriteAllText((Join-Path $OutputRoot 'sxloc-update.json'), $updateInfo, [Text.UTF8Encoding]::new($false))
 [IO.File]::Copy($updatePayload, $portableZip, $true)
 $sourceZip = Join-Path $OutputRoot '随行定位-源码.zip'
-$archive = [IO.Compression.ZipFile]::Open($sourceZip, [IO.Compression.ZipArchiveMode]::Create)
-try {
-    foreach ($file in Get-ChildItem -LiteralPath $sourceRoot -File -Recurse -Force) {
-        $relative = $file.FullName.Substring($sourceRoot.Length + 1)
-        if ($relative -match '(^|\\)(bin|obj|build|dist|publish|releases|__pycache__|\.dart_tool|\.git|\.vs|\.idea|ephemeral|\.plugin_symlinks|Private|test-identity|test-ident|secrets|ident|identity)(\\|$)') { continue }
-        if ($relative -match '(^|\\)\.gradle(\\|$)') { continue }
-        if ($file.Name -match '\.(apk|pk8|p7b|dpapi|pfx|pem|jks|keystore|user|log|pdb|dll|exe|zip)$' -or $file.Name -in @('iap2loc.json', 'desktop.json', '.flutter-plugins-dependencies', 'local.properties', 'key.properties')) { continue }
-        [IO.Compression.ZipFileExtensions]::CreateEntryFromFile($archive, $file.FullName, ('iap2loc-main/' + $relative.Replace('\', '/')), [IO.Compression.CompressionLevel]::Optimal) | Out-Null
-    }
-} finally { $archive.Dispose() }
+# Source attachments contain the committed inputs rather than arbitrary local files.
+& git -C $sourceRoot diff --quiet HEAD -- Engine Protocol Transport Bridge Desktop FlutterApp scripts Iap2Loc.csproj
+if ($LASTEXITCODE -ne 0) { throw '应用源码或构建脚本有未提交改动，请先提交再生成对应源码附件。' }
+& (Join-Path $PSScriptRoot 'export-source.ps1') -Destination $sourceZip
 
 if ($InnoCompiler) {
     & $InnoCompiler "/DBundleDir=$bundle" "/DReleaseDir=$OutputRoot" "/DAppVersion=$Version" (Join-Path $PSScriptRoot 'windows-installer.iss')

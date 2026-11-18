@@ -8,7 +8,9 @@ import 'package:latlong2/latlong.dart';
 import 'package:window_manager/window_manager.dart';
 
 import 'core_client.dart';
+import 'favorite_input.dart';
 import 'coordinates.dart';
+import 'map_tile_layer.dart';
 import 'settings_sheet.dart';
 import 'ui.dart';
 import 'desktop_about.dart';
@@ -70,6 +72,7 @@ class _WorkspaceState extends State<Workspace> with WindowListener {
   List<JsonMap> results = [];
   LatLng draft = const LatLng(31.2304, 121.4737);
   DateTime? lastTileError;
+  int tileRevision = 0;
   DateTime? lastAppliedAt;
   String? applyError;
   String appliedName = '';
@@ -105,12 +108,12 @@ class _WorkspaceState extends State<Workspace> with WindowListener {
       }
       return usb['clearRequested'] == true
           ? '已发送停止模拟指令 · 手机结果待确认'
-          : 'USB 未连接 · 目标仅保存在本机';
+          : 'USB 未连接 · 请先连接 iPhone 后应用';
     }
     final active = core.sessions
         .where((s) => sessionActive(s) && s['error'] == null)
         .toList();
-    if (active.isEmpty) return '未连接设备 · 目标仅保存在本机';
+    if (active.isEmpty) return '未连接 iPhone · 请先连接后应用';
     final errors = active.where((s) => s['sendError'] != null).toList();
     if (errors.isNotEmpty) return '发送异常：${errors.first['sendError']}';
     final subscribed = active
@@ -241,6 +244,12 @@ class _WorkspaceState extends State<Workspace> with WindowListener {
                   .firstOrNull?['address']
               as String?;
       status = '已就绪，选择位置后应用到已连接的设备';
+      final warning = core.state['startupWarning']?.toString();
+      if (warning != null && warning.isNotEmpty) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) unawaited(showMessage(context, warning));
+        });
+      }
       if (mapReady) recenter();
     }
     setState(() => loading = false);
@@ -463,6 +472,18 @@ class _WorkspaceState extends State<Workspace> with WindowListener {
       showAppliedNotice = false;
     });
     try {
+      await core.refresh();
+      final blockedReason = core.state['applyBlockedReason']?.toString();
+      if (blockedReason != null && blockedReason.isNotEmpty) {
+        if (mounted) {
+          setState(() {
+            applyError = blockedReason;
+            status = blockedReason;
+          });
+          await showMessage(context, blockedReason);
+        }
+        return;
+      }
       final args = <String, dynamic>{};
       for (final entry in fields.entries) {
         final value = double.tryParse(submitted[entry.key]!.trim());
@@ -505,7 +526,7 @@ class _WorkspaceState extends State<Workspace> with WindowListener {
       if (mounted) {
         setState(() {
           applyError = e.toString();
-          status = '目标更新失败，请检查参数后重试';
+          status = '目标更新失败：$e';
         });
       }
     } finally {
@@ -519,17 +540,14 @@ class _WorkspaceState extends State<Workspace> with WindowListener {
         .where((d) => d['address'] == selectedMac)
         .firstOrNull;
     if (d == null) return;
-    if (dirty) {
-      await apply();
-      if (dirty) return;
-    }
+    final mac = selectedMac;
     setState(() {
       connecting = true;
       status = '正在连接 ${d['name']}，最长等待 20 秒…';
     });
     await perform(() async {
       if (usbActive) await core.call('usb.stop');
-      await core.call('connect', {'mac': selectedMac, 'name': d['name']});
+      await core.call('connect', {'mac': mac, 'name': d['name']});
       await core.refresh();
       if (mounted) setState(() => status = '蓝牙已连接，正在等待设备识别与认证');
     });
@@ -565,17 +583,14 @@ class _WorkspaceState extends State<Workspace> with WindowListener {
 
   Future<void> connectUsb() async {
     if (selectedUsb == null || usbBusy || usbActive) return;
-    if (dirty) {
-      await apply();
-      if (dirty || !mounted) return;
-    }
+    final udid = selectedUsb;
     setState(() => usbBusy = true);
     await perform(() async {
       // Avoid two location sources competing for the same phone.
       if (core.sessions.any(sessionActive)) {
         await core.call('stopAll');
       }
-      await core.call('usb.connect', {'udid': selectedUsb});
+      await core.call('usb.connect', {'udid': udid});
       await core.refresh();
       if (mounted) setState(() => status = '正在准备 USB 开发者定位');
     });
@@ -626,6 +641,16 @@ class _WorkspaceState extends State<Workspace> with WindowListener {
   }
 
   Future<void> favorite() async {
+    late final FavoriteInput point;
+    try {
+      point = FavoriteInput.parse({
+        for (final e in fields.entries) e.key: e.value.text,
+      });
+    } on FormatException catch (e) {
+      await showMessage(context, e.message);
+      return;
+    }
+    if (!mounted) return;
     final name = TextEditingController(text: destination);
     final save = await showMacSheet<bool>(
       context,
@@ -637,7 +662,10 @@ class _WorkspaceState extends State<Workspace> with WindowListener {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(coordinates(draft), style: textStyle(12, muted)),
+            Text(
+              coordinates(LatLng(point.latitude, point.longitude)),
+              style: textStyle(12, muted),
+            ),
             const SizedBox(height: 14),
             MacField(controller: name, label: '位置名称'),
             const SizedBox(height: 20),
@@ -665,23 +693,21 @@ class _WorkspaceState extends State<Workspace> with WindowListener {
     );
     if (save == true) {
       await perform(() async {
-        final altitude = double.tryParse(fields['altitude']!.text),
-            accuracy = double.tryParse(fields['accuracy']!.text);
-        if (altitude == null ||
-            accuracy == null ||
-            !altitude.isFinite ||
-            !accuracy.isFinite ||
-            accuracy < .1) {
-          throw const CoreError('请检查高度和精度');
-        }
         await core.call('favorites.add', {
           'name': name.text.trim(),
-          'latitude': draft.latitude,
-          'longitude': draft.longitude,
-          'altitude': altitude,
-          'accuracy': accuracy,
+          'latitude': point.latitude,
+          'longitude': point.longitude,
+          'altitude': point.altitude,
+          'accuracy': point.accuracy,
         });
-        await core.refresh();
+        try {
+          await core.refresh();
+        } catch (_) {
+          if (mounted) {
+            setState(() => status = '收藏已保存，列表刷新失败，请稍后查看');
+          }
+          return;
+        }
         if (mounted) setState(() => status = '已保存到收藏位置');
       });
     }
@@ -1033,7 +1059,10 @@ class _WorkspaceState extends State<Workspace> with WindowListener {
                 () => showDesktopAbout(context, core),
               ),
               const Spacer(),
-              Text('${AppInfo.desktopVersionName} · Flutter', style: textStyle(9, muted)),
+              Text(
+                '${AppInfo.desktopVersionName} · Flutter',
+                style: textStyle(9, muted),
+              ),
             ],
           ),
         ),
@@ -1170,15 +1199,11 @@ class _WorkspaceState extends State<Workspace> with WindowListener {
             },
           ),
           children: [
-            TileLayer(
-              key: ValueKey(amap),
-              urlTemplate: amap
-                  ? 'https://webrd0{s}.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=8&x={x}&y={y}&z={z}'
-                  : 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-              subdomains: amap ? const ['1', '2', '3', '4'] : const [],
+            MapTileLayer(
+              key: ValueKey('$amap-$tileRevision'),
+              amap: amap,
               userAgentPackageName: 'io.suixing.location',
-              maxZoom: amap ? 18 : 19,
-              errorTileCallback: (_, _, _) {
+              onError: (_, _, _) {
                 final now = DateTime.now();
                 if (lastTileError == null ||
                     now.difference(lastTileError!) >
@@ -1186,7 +1211,11 @@ class _WorkspaceState extends State<Workspace> with WindowListener {
                   lastTileError = now;
                   WidgetsBinding.instance.addPostFrameCallback((_) {
                     if (mounted) {
-                      setState(() => tileWarning = '部分地图未加载，请检查网络或切换底图');
+                      setState(() {
+                        tileWarning = amap
+                            ? '部分地图未加载，请检查网络或切换底图'
+                            : '开放底图连接失败，可重试或切换高德；地点搜索可单独使用开放地图';
+                      });
                     }
                   });
                 }
@@ -1371,6 +1400,17 @@ class _WorkspaceState extends State<Workspace> with WindowListener {
                 Expanded(
                   child: Text(tileWarning!, style: textStyle(11, muted)),
                 ),
+                MacButton(
+                  '重新加载',
+                  compact: true,
+                  icon: CupertinoIcons.refresh,
+                  onPressed: () => setState(() {
+                    ++tileRevision;
+                    tileWarning = null;
+                    lastTileError = null;
+                  }),
+                ),
+                const SizedBox(width: 4),
                 ToolButton(
                   CupertinoIcons.xmark,
                   '关闭提示',

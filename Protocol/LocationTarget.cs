@@ -161,11 +161,19 @@ internal sealed class LocationTarget
 
     private static (double Latitude, double Longitude) OffsetMeters(double latitude, double longitude, double distance, double angle)
     {
-        const double metresPerDegree = 111_320.0;
-        var deltaLatitude = distance * Math.Cos(angle) / metresPerDegree;
-        var deltaLongitude = distance * Math.Sin(angle) /
-                             (metresPerDegree * Math.Max(0.01, Math.Cos(latitude * Math.PI / 180)));
-        return (latitude + deltaLatitude, longitude + deltaLongitude);
+        const double earthRadius = 6_371_008.8;
+        var lat = latitude * Math.PI / 180;
+        var lon = longitude * Math.PI / 180;
+        var arc = distance / earthRadius;
+        // Move along the local north/east tangent on a unit sphere. This also works
+        // at the poles and naturally wraps longitude at the date line.
+        var north = Math.Cos(angle) * Math.Sin(arc);
+        var east = Math.Sin(angle) * Math.Sin(arc);
+        var origin = Math.Cos(arc);
+        var x = Math.Cos(lat) * Math.Cos(lon) * origin - Math.Sin(lat) * Math.Cos(lon) * north - Math.Sin(lon) * east;
+        var y = Math.Cos(lat) * Math.Sin(lon) * origin - Math.Sin(lat) * Math.Sin(lon) * north + Math.Cos(lon) * east;
+        var z = Math.Sin(lat) * origin + Math.Cos(lat) * north;
+        return (Math.Atan2(z, Math.Sqrt(x * x + y * y)) * 180 / Math.PI, Math.Atan2(y, x) * 180 / Math.PI);
     }
 }
 

@@ -10,7 +10,7 @@
 
 | 平台 | 当前测试版 | 下载 |
 | --- | --- | --- |
-| Windows x64 | 1.1.4（9） | [完整便携 ZIP](https://github.com/yfl520/sxloc/releases/tag/windows-v1.1.4%2B9) |
+| Windows x64 | 1.1.10（15） | [安装版 / 完整便携 ZIP](https://github.com/yfl520/sxloc/releases/tag/windows-v1.1.10%2B15) |
 | Android 8 及以上 | 1.2.8（15） | [APK](https://github.com/yfl520/sxloc/releases/tag/android-v1.2.8%2B15) |
 
 首次打开需主动同意[使用协议与免责声明](FlutterApp/assets/service_agreement.md)，协议更新后重新确认；关于页可再次查看。
@@ -19,7 +19,7 @@
 
 **Android：** 安装 APK，在系统蓝牙设置中与 iPhone 配对，打开应用并允许附近设备权限。在“设置 → 本机蓝牙地址”填入安卓手机自己的真实蓝牙 MAC 地址，不能填 iPhone 地址、Wi-Fi 地址或 `02:00:00:00:00:00`。返回首页选择 iPhone 并连接。等待认证与定位订阅；需要时在 iPhone 自带地图中请求当前位置。测试 APK 使用测试签名，自行构建的 APK 不一定能覆盖安装。
 
-在地图上选点、搜索地点或输入 WGS-84 坐标后，点击“应用定位”或“应用并持续发送”。选点本身不发送新位置。结束时断开连接；停止发送不保证 iPhone 立即恢复真实位置。
+在地图上选点、搜索地点或输入 WGS-84 坐标后，点击“应用定位”或“应用并持续发送”。Windows 需先连接 iPhone 并完成认证，USB 通道需准备完成；未连接时会提示。连接前选好的坐标会保留，连接完成后手动应用。选点本身不发送新位置。结束时断开连接；停止发送不保证 iPhone 立即恢复真实位置。
 
 ## 功能与限制
 

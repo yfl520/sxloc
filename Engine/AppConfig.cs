@@ -47,6 +47,9 @@ internal sealed class AppConfig
     [JsonIgnore]
     public string FilePath { get; private set; } = DefaultPath;
 
+    [JsonIgnore]
+    public string? LoadWarning { get; private set; }
+
     public static string DefaultPath => Path.Combine(AppContext.BaseDirectory, "iap2loc.json");
 
     public static AppConfig Load(string? path)
@@ -56,29 +59,21 @@ internal sealed class AppConfig
             FilePath = string.IsNullOrWhiteSpace(path) ? DefaultPath : Path.GetFullPath(path),
         };
 
-        try
+        var loaded = AtomicJsonFile.Read(config.FilePath, text =>
         {
-            if (!File.Exists(config.FilePath))
-            {
-                return config;
-            }
-
-            var loaded = JsonSerializer.Deserialize<AppConfig>(File.ReadAllText(config.FilePath), Json);
-            if (loaded is null)
-            {
-                return config;
-            }
-
+            var value = JsonSerializer.Deserialize<AppConfig>(text, Json) ?? throw new JsonException("配置为空");
+            return value;
+        }, out var warning);
+        if (loaded is not null)
+        {
             loaded.FilePath = config.FilePath;
             loaded.Accessory = (loaded.Accessory ?? AccessoryProfile.Default).Sanitize();
             loaded.Favorites ??= new List<Favorite>();
+            loaded.LoadWarning = warning;
             return loaded;
         }
-        catch (Exception ex)
-        {
-            Log.Warn($"配置文件无法读取，改用默认值：{ex.Message}");
-            return config;
-        }
+        config.LoadWarning = warning;
+        return config;
     }
 
     /// <summary>Rotates the identity and fills in the adapter address on first run, then persists both.</summary>
@@ -86,19 +81,24 @@ internal sealed class AppConfig
     {
         lock (_gate)
         {
-            if (RandomizeIdentity && RotateIdentityOnStart)
+            var previous = Accessory;
+            try
             {
-                Accessory = Accessory.Rotate();
-            }
+                if (RandomizeIdentity && RotateIdentityOnStart)
+                {
+                    Accessory = Accessory.Rotate();
+                }
 
-            if (RandomizeAdapter && UseAdapterOverride && Accessory.AdapterOverride() is null)
-            {
-                Accessory = Accessory with { AdapterAddress = AccessoryProfile.RandomAdapterAddress(localAdapter) };
-            }
+                if (RandomizeAdapter && UseAdapterOverride && Accessory.AdapterOverride() is null)
+                {
+                    Accessory = Accessory with { AdapterAddress = AccessoryProfile.RandomAdapterAddress(localAdapter) };
+                }
 
-            Log.Info($"配置 {FilePath}");
-            Log.Info($"配件身份 {EffectiveProfile.Serial}，蓝牙地址 {EffectiveProfile.AdapterAddress ?? "本机"}");
-            SaveLocked();
+                SaveLocked();
+                Log.Info($"配置 {FilePath}");
+                Log.Info($"配件身份 {EffectiveProfile.Serial}，蓝牙地址 {EffectiveProfile.AdapterAddress ?? "本机"}");
+            }
+            catch { Accessory = previous; throw; }
         }
     }
 
@@ -113,8 +113,10 @@ internal sealed class AppConfig
                 next = next with { AdapterAddress = AccessoryProfile.RandomAdapterAddress(localAdapter) };
             }
 
+            var previous = Accessory;
             Accessory = next;
-            SaveLocked();
+            try { SaveLocked(); }
+            catch { Accessory = previous; throw; }
             return EffectiveProfile;
         }
     }
@@ -137,19 +139,25 @@ internal sealed class AppConfig
 
     public Favorite AddFavorite(string? name, double latitude, double longitude, double? altitude, double? accuracy)
     {
+        _ = new LocationTarget(latitude, longitude);
+        if (altitude is { } height && (!double.IsFinite(height) || height is < -12000 or > 100000)
+            || accuracy is { } precision && (!double.IsFinite(precision) || precision is < .1 or > 100000))
+            throw new ArgumentException("请检查高度和精度");
         var label = string.IsNullOrWhiteSpace(name) ? $"{latitude:F4}, {longitude:F4}" : name.Trim();
         var favorite = new Favorite(
             Guid.NewGuid().ToString("N")[..8], label, latitude, longitude, altitude, accuracy);
 
         lock (_gate)
         {
+            var previous = Favorites.ToList();
             Favorites.Insert(0, favorite);
             if (Favorites.Count > 200)
             {
                 Favorites.RemoveRange(200, Favorites.Count - 200);
             }
 
-            SaveLocked();
+            try { SaveLocked(); }
+            catch { Favorites = previous; throw; }
         }
 
         return favorite;
@@ -159,10 +167,12 @@ internal sealed class AppConfig
     {
         lock (_gate)
         {
+            var previous = Favorites.ToList();
             var removed = Favorites.RemoveAll(item => item.Id == id) > 0;
             if (removed)
             {
-                SaveLocked();
+                try { SaveLocked(); }
+                catch { Favorites = previous; throw; }
             }
 
             return removed;
@@ -171,19 +181,6 @@ internal sealed class AppConfig
 
     private void SaveLocked()
     {
-        try
-        {
-            var directory = Path.GetDirectoryName(FilePath);
-            if (!string.IsNullOrEmpty(directory))
-            {
-                Directory.CreateDirectory(directory);
-            }
-
-            File.WriteAllText(FilePath, JsonSerializer.Serialize(this, Json));
-        }
-        catch (Exception ex)
-        {
-            Log.Warn($"配置保存失败（{FilePath}）：{ex.Message}");
-        }
+        AtomicJsonFile.Write(FilePath, JsonSerializer.Serialize(this, Json));
     }
 }
