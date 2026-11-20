@@ -6,6 +6,7 @@ import 'package:latlong2/latlong.dart';
 import 'package:flutter_localizations/flutter_localizations.dart' as sdk;
 
 import 'android_map_picker.dart';
+import 'android_map_link_import.dart';
 import 'android_search_settings.dart';
 import 'about_page.dart';
 import 'app_info.dart';
@@ -14,6 +15,7 @@ import 'platform_updates.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
+  registerMapLinkLicenses();
   runApp(const BluetoothTestApp());
 }
 
@@ -65,6 +67,12 @@ class _BluetoothTestPageState extends State<BluetoothTestPage>
     with WidgetsBindingObserver {
   static const _control = MethodChannel('suixing/android/control');
   static const _events = EventChannel('suixing/android/events');
+  static const _shares = MethodChannel('suixing/android/share');
+  late final Future<void> _configurationReady;
+  bool _readingShare = false;
+  bool _shareReadAgain = false;
+  int _shareGeneration = 0;
+  Route<dynamic>? _shareRoute;
   final _local = TextEditingController();
   final _lat = TextEditingController();
   final _lon = TextEditingController();
@@ -94,7 +102,71 @@ class _BluetoothTestPageState extends State<BluetoothTestPage>
         setState(() => _state = Map<String, dynamic>.from(event));
       }
     }, onError: (Object error) => _showError(error));
-    unawaited(_load());
+    _configurationReady = _load();
+    _shares.setMethodCallHandler((call) async {
+      if (call.method == 'available') await _checkMapShare();
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) unawaited(_checkMapShare());
+    });
+  }
+
+  Future<void> _checkMapShare() async {
+    _shareReadAgain = true;
+    if (_readingShare) return;
+    _readingShare = true;
+    try {
+      await _configurationReady;
+      while (mounted && _shareReadAgain) {
+        _shareReadAgain = false;
+        final share = await _shares.invokeMapMethod<String, String>('take');
+        if (!mounted || share == null) continue;
+        final generation = ++_shareGeneration;
+        final navigator = Navigator.of(context);
+        final previous = _shareRoute;
+        _shareRoute = null;
+        if (previous != null && previous.isActive) {
+          // Replace only this share flow, including any settings opened above it.
+          navigator.popUntil((route) => route == previous || route.isFirst);
+          navigator.removeRoute(previous);
+        }
+        unawaited(_openMapShare(share, generation));
+      }
+    } on MissingPluginException {
+      // The Android-only share channel is absent in desktop/widget hosts.
+    } catch (error) {
+      _showError(error);
+    } finally {
+      _readingShare = false;
+    }
+  }
+
+  Future<void> _openMapShare(Map<String, String> share, int generation) async {
+    FocusManager.instance.primaryFocus?.unfocus();
+    final navigator = Navigator.of(context);
+    final importer = CupertinoPageRoute<MapLinkSelection>(
+      builder: (_) => AndroidMapLinkImport(
+        initialText: share['text'] ?? '',
+        initialError: share['error'],
+      ),
+    );
+    _shareRoute = importer;
+    final selection = await navigator.push(importer);
+    if (!mounted || generation != _shareGeneration) return;
+    _shareRoute = null;
+    if (selection == null) return;
+    final map = CupertinoPageRoute<LatLng>(
+      builder: (_) => AndroidMapPicker(imported: selection),
+    );
+    _shareRoute = map;
+    final point = await navigator.push(map);
+    if (!mounted || generation != _shareGeneration) return;
+    _shareRoute = null;
+    if (point != null) {
+      navigator.popUntil((route) => route.isFirst);
+      _tabs.index = 0;
+      _fillPickedPoint(point);
+    }
   }
 
   Future<void> _load() async {
@@ -119,6 +191,7 @@ class _BluetoothTestPageState extends State<BluetoothTestPage>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) unawaited(_checkMapShare());
     if (state == AppLifecycleState.resumed && _readOnce && !_reading) {
       unawaited(_refresh());
     }
@@ -242,6 +315,10 @@ class _BluetoothTestPageState extends State<BluetoothTestPage>
       CupertinoPageRoute(builder: (_) => AndroidMapPicker(initial: initial)),
     );
     if (!mounted || point == null) return;
+    _fillPickedPoint(point);
+  }
+
+  void _fillPickedPoint(LatLng point) {
     setState(() {
       _lat.text = point.latitude.toStringAsFixed(6);
       _lon.text = point.longitude.toStringAsFixed(6);
@@ -293,6 +370,8 @@ class _BluetoothTestPageState extends State<BluetoothTestPage>
 
   @override
   void dispose() {
+    ++_shareGeneration;
+    _shares.setMethodCallHandler(null);
     WidgetsBinding.instance.removeObserver(this);
     unawaited(_subscription?.cancel());
     _tabs.dispose();

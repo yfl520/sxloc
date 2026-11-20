@@ -16,6 +16,8 @@
 
 ## 组件及在线服务
 
+安卓地图分享链接导入中的百度 BD09MC 反算系数与算法参考 [gcoord](https://github.com/hujiulong/gcoord)（MIT，Copyright (c) 2018-present, Jiulong Hu）。对应 Dart 实现在 `FlutterApp/lib/map_link_coordinates.dart`，保留完整 MIT 声明并注册到 Flutter 许可证列表。链接导入交互参考 WLOC 的公开思路，解析与界面独立实现，未复制其 AGPL 源码。
+
 | 组件 | 用途 | 官方来源 |
 | --- | --- | --- |
 | Flutter / Dart | 界面及运行引擎 | https://flutter.dev / https://dart.dev |
@@ -34,3 +36,5 @@
 USB 依赖版本和 wheel SHA-256 见 `Bridge/UsbWorker/requirements.lock`。发布目录保留 CPython 许可、`licenses/usb-python/*.dist-info` 中的依赖许可与元数据，以及 `core/usb/Lib/site-packages` 中的原始许可。开发者镜像按上游组件来源在连接准备时下载缓存，不捆绑 Apple 系统镜像。清理说明文档时应保留这些许可证。
 
 高德、OpenStreetMap 及 Photon 在线服务与数据遵循各自条款，不包含在项目代码许可证中。地图显示相应署名；高德 Web 服务 Key 由用户自行配置，不内置共享搜索 Key。开放地图数据来自 OpenStreetMap 贡献者，开放搜索默认使用 Photon。
+
+安卓地点分享链接支持高德、腾讯、百度、Apple Maps 和 Google Maps。短链接由设备直接访问相应地图分享服务，链接与服务遵循各自条款；腾讯 URI 参数格式参考其[官方说明](https://lbs.qq.com/webApi/uriV1/uriGuide/uriWebMarker)，不使用共享腾讯搜索 Key。

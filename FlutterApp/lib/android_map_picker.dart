@@ -5,13 +5,15 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 
 import 'android_place_search.dart';
+import 'android_map_link_import.dart';
 import 'android_search_settings.dart';
 import 'coordinates.dart';
 
 class AndroidMapPicker extends StatefulWidget {
-  const AndroidMapPicker({super.key, this.initial});
+  const AndroidMapPicker({super.key, this.initial, this.imported});
 
   final LatLng? initial;
+  final MapLinkSelection? imported;
 
   @override
   State<AndroidMapPicker> createState() => _AndroidMapPickerState();
@@ -55,9 +57,18 @@ class _AndroidMapPickerState extends State<AndroidMapPicker> {
   @override
   void initState() {
     super.initState();
-    _point = widget.initial ?? const LatLng(31.2304, 121.4737);
-    _hasSelection = widget.initial != null;
-    if (_hasSelection) _name = '当前填写的位置';
+    final imported = widget.imported;
+    _point =
+        imported?.place.point(imported.datum) ??
+        widget.initial ??
+        const LatLng(31.2304, 121.4737);
+    _hasSelection = imported != null || widget.initial != null;
+    if (imported != null) {
+      _name = imported.place.title;
+      _address = imported.place.approximate ? '链接仅包含地图中心' : '';
+    } else if (_hasSelection) {
+      _name = '当前填写的位置';
+    }
     _query.addListener(_onQueryChanged);
     unawaited(_loadSearchOptions());
   }

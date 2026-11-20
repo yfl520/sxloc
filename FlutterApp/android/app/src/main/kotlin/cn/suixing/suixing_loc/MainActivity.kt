@@ -21,6 +21,8 @@ class MainActivity : FlutterActivity() {
     private var bound = false
     private var sink: EventChannel.EventSink? = null
     private var permissionResult: MethodChannel.Result? = null
+    private val mapShares = MapShareInbox()
+    private var shareChannel: MethodChannel? = null
     private val prefs by lazy { getSharedPreferences("bluetooth_test", MODE_PRIVATE) }
     private val mapSearchSettings by lazy { MapSearchSettings(this) }
     private var searchInputDialog: SearchInputDialog? = null
@@ -35,6 +37,14 @@ class MainActivity : FlutterActivity() {
     }
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        shareChannel = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "suixing/android/share").also { channel ->
+            channel.setMethodCallHandler { call, result ->
+                if (call.method != "take") result.notImplemented()
+                else if (prefs.getString("agreementVersion", null) != AGREEMENT_VERSION)
+                    result.error("AGREEMENT", "请先阅读并同意使用协议", null)
+                else result.success(mapShares.take())
+            }
+        }
         if (prefs.getString("agreementVersion", null) == AGREEMENT_VERSION) bindLocationService()
         EventChannel(flutterEngine.dartExecutor.binaryMessenger, "suixing/android/events").setStreamHandler(object : EventChannel.StreamHandler {
             override fun onListen(arguments: Any?, events: EventChannel.EventSink) { sink = events; service?.snapshot?.let { events.success(it) } }
@@ -126,6 +136,40 @@ class MainActivity : FlutterActivity() {
             } catch (error: Exception) { result.error("BLUETOOTH", error.message ?: "蓝牙操作失败", null) }
         }
     }
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        mapShares.restore(savedInstanceState?.getString("pendingMapText"), savedInstanceState?.getString("pendingMapError"))
+        receiveMapShare(intent)
+    }
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        receiveMapShare(intent)
+    }
+    private fun receiveMapShare(incoming: Intent?) {
+        if (incoming == null || incoming.action != Intent.ACTION_SEND) return
+        // Read text only. Never open a shared file, content URI or arbitrary app intent.
+        val text = runCatching {
+            val item = incoming.clipData?.takeIf { it.itemCount > 0 }?.getItemAt(0)
+            incoming.getCharSequenceExtra(Intent.EXTRA_TEXT)
+                ?: item?.text
+                ?: item?.uri?.takeIf { it.scheme == "https" || it.scheme == "http" }?.toString()
+        }.getOrNull()
+        if (mapShares.receive(incoming.action, incoming.type, text)) {
+            // Consuming the launch intent avoids importing it again on ordinary relaunch.
+            incoming.removeExtra(Intent.EXTRA_TEXT)
+            incoming.clipData = null
+            incoming.action = Intent.ACTION_MAIN
+            shareChannel?.invokeMethod("available", null)
+        }
+    }
+    override fun onSaveInstanceState(outState: Bundle) {
+        mapShares.peek()?.let {
+            outState.putString("pendingMapText", it["text"])
+            outState.putString("pendingMapError", it["error"])
+        }
+        super.onSaveInstanceState(outState)
+    }
     private fun hasPermission() = Build.VERSION.SDK_INT < 31 || checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED
     private fun bindLocationService() {
         if (!bound) bound = bindService(Intent(this, LocationService::class.java), connection, BIND_AUTO_CREATE)
@@ -156,6 +200,7 @@ class MainActivity : FlutterActivity() {
         }
     }
     override fun onDestroy() {
+        shareChannel?.setMethodCallHandler(null); shareChannel = null
         searchInputDialog?.close(); searchInputDialog = null
         updates.close()
         permissionResult?.error("CANCELLED", "界面已关闭，请重新操作", null); permissionResult = null
